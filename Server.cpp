@@ -4,56 +4,83 @@
 #include <windows.h>
 #pragma comment(lib, "ws2_32")
 
+#define SERVERPORT 9000
+#define BUFSIZE 512
+
 // ДЕКЛАРАЦИЯ ТИПОВ
 // typedef int SOCKET;
 
 // ДЕКЛАРАЦИЯ ФУНКЦИИ
 void err_quit(const char *msg);
 void err_display(const char *msg);
-bool GetIPAddr(const char* name, struct in_addr* addr);
-bool GetDomainName(struct in_addr addr, char* name, int namelen);
 
 int main(int argc, char* argv[]) {
+	int retval;
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
 	printf("[УВЕДОМЛЕНИЕ] Успешная инициализация winsock!\n");
 	// НАЧАЛО ПРОГРАММЫ
-	const char* ipv4test = "147.46.114.70";
-	printf("IPv4 주소(변환 전) = %s\n", ipv4test);
-	struct in_addr ipv4num;
-	inet_pton(AF_INET, ipv4test, &ipv4num);
-	printf("IPv4 주소(변환 후) = %#x\n", ipv4num.s_addr);
-	char ipv4str[INET_ADDRSTRLEN];
-	inet_ntop(AF_INET, &ipv4num, ipv4str, sizeof(ipv4str));
-	printf("IPv4 주소(다시 변환 후) = %s\n", ipv4str);
+	// СОЗДАТЬ SOCKET
+	SOCKET listen_sock = socket(AF_INET, SOCK_STREAM, 0);
+	if (listen_sock == INVALID_SOCKET) err_quit("socket()");
+	// bind()
+	struct sockaddr_in serveraddr;
+	memset(&serveraddr, 0, sizeof(serveraddr));
+	serveraddr.sin_family = AF_INET;
+	serveraddr.sin_addr.s_addr = htonl(INADDR_ANY);
+	serveraddr.sin_port = htons(SERVERPORT);
+	retval = bind(listen_sock, (struct sockaddr *)&serveraddr, sizeof(serveraddr));
+	if (retval == SOCKET_ERROR) err_quit("bind()");
+	// listen()
+	retval = listen(listen_sock, SOMAXCONN);
+	if (retval == SOCKET_ERROR) err_quit("listen()");
+	// ПЕРЕМЕННЫЕ ДЛЯ ПЕРЕДАЧИ ДАННЫХ
+	SOCKET client_sock;
+	struct sockaddr_in clientaddr;
+	int addrlen;
+	char buf[BUFSIZE + 1];
+	while (1) {
+		// accept()
+		addrlen = sizeof(clientaddr);
+		client_sock = accept(listen_sock, (struct sockaddr*)&clientaddr, &addrlen);
+		if (client_sock == INVALID_SOCKET) {
+			err_display("accept()");
+			break;
+		}
+		// ОТОБРАЖЕНИЕ ИНФОРМАЦИИ О ПОДКЛЮЧЕННОМ КЛИЕНТЕ
+		char addr[INET_ADDRSTRLEN];
+		inet_ntop(AF_INET, &clientaddr.sin_addr, addr, sizeof(addr));
+		printf("\n[TCP-СЕРВЕР] Присоединился новый клиент: IP-адрес=%s, Номер-порта=%s\n",
+			addr, ntohs(clientaddr.sin_port));
+		// ПЕРЕДАЧА ДАННЫХ С КЛИЕНТОМ
+		while(1) {
+			// ПОЛУЧИТЬ ДАННЫЕ
+			retval = recv(client_sock, buf, BUFSIZE, 0);
+			if (retval == SOCKET_ERROR) {
+				err_display("recv()");
+				break;
+			}
+			else if (retval == 0) break;
+			// ВЫВОД ПОЛУЧЕННЫХ ДАННЫХ
+			buf[retval] = '\0';
+			printf("[TCP/%s:%d] %s\n", addr, ntohs(clientaddr.sin_port), buf);
+			// ОТПРАВИТЬ ДАННЫЕ
+			retval = send(client_sock, buf, retval, 0);
+			if (retval == SOCKET_ERROR) {
+				err_display("send()");
+				break;
+			}
+		}
+		// ЗАКРЫТЬ SOCKET
+		closesocket(client_sock);
+		printf("[TCP-СЕРВЕР] ОТКЛЮЧЕН ОТ КЛИЕНТА: IP-адрес=%s, Номер-порта=%s\n",
+			addr, ntohs(clientaddr.sin_port));
+	}
+	// ЗАКРЫТЬ SOCKET
+	closesocket(listen_sock);
 	// КОНЕЦ ПРОГРАММЫ
 	WSACleanup();
 	return 0;
-}
-
-bool GetIPAddr(const char* name, struct in_addr* addr) {
-	struct hostent* ptr = gethostbyname(name);
-	if (ptr == NULL) {
-		err_display("gethostbyname()");
-		return false;
-	}
-	if (ptr->h_addrtype != AF_INET)
-		return false;
-	memcpy(addr, ptr->h_addr, ptr->h_length);
-	return true;
-}
-
-bool GetDomainName(struct in_addr addr, char* name, int namelen) {
-	struct hostent* ptr = gethostbyaddr((const char*)&addr,
-		sizeof(addr), AF_INET);
-	if (ptr == NULL) {
-		err_display("gethostbyaddr()");
-		return false;
-	}
-	if (ptr->h_addrtype != AF_INET)
-		return false;
-	strncpy(name, ptr->h_name, namelen);
-	return true;
 }
 
 void err_quit(const char *msg) {

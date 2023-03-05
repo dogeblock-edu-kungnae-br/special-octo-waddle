@@ -16,6 +16,7 @@ void err_display(const char *msg);
 
 int main(int argc, char* argv[]) {
 	int retval;
+	// ИНИЦИАЛИЗАЦИЯ WINSOCK
 	WSADATA wsa;
 	if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) return 1;
 	printf("[УВЕДОМЛЕНИЕ] Успешная инициализация winsock!\n");
